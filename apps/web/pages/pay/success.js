@@ -1,0 +1,1 @@
+export default function Success(){return <div style={{padding:24,fontFamily:'system-ui'}}><h1>Pago exitoso</h1><p>Vuelve a la app/web. El webhook actualizará el estado a <b>PAID_IN_CUSTODY</b>.</p></div>}

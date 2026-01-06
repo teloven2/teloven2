@@ -1,0 +1,13 @@
+{
+  "name": "teloven2-mvp",
+  "private": true,
+  "packageManager": "pnpm@9.0.0",
+  "scripts": {
+    "dev": "pnpm -r dev",
+    "db:generate": "pnpm --filter @teloven2/api prisma:generate",
+    "db:migrate": "pnpm --filter @teloven2/api prisma:migrate"
+  },
+  "devDependencies": {
+    "turbo": "^2.0.0"
+  }
+}

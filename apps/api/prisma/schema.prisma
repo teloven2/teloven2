@@ -1,0 +1,131 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum OrderStatus {
+  CREATED
+  PAID_IN_CUSTODY
+  DELIVERED_MARKED
+  CONFIRMED_BY_BUYER
+  PAYOUT_INITIATED
+  PAID_OUT
+  DISPUTE_OPENED
+  CANCELLED
+}
+
+enum ListingType {
+  product
+  service
+}
+
+model User {
+  id              String   @id @default(uuid())
+  email           String   @unique
+  name            String
+  passwordHash    String
+  isEmailVerified Boolean  @default(false)
+  createdAt       DateTime @default(now())
+
+  listings Listing[]
+  ordersAsBuyer Order[] @relation("BuyerOrders")
+  ordersAsSeller Order[] @relation("SellerOrders")
+  emailVerifications EmailVerification[]
+}
+
+model EmailVerification {
+  id        String   @id @default(uuid())
+  userId    String
+  token     String   @unique
+  expiresAt DateTime
+  used      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  user User @relation(fields: [userId], references: [id])
+
+  @@index([userId])
+}
+
+model Listing {
+  id          String      @id @default(uuid())
+  sellerId    String
+  type        ListingType
+  title       String
+  description String
+  price       Int
+  currency    String      @default("CLP")
+  status      String      @default("active")
+  createdAt   DateTime    @default(now())
+
+  seller User @relation(fields: [sellerId], references: [id])
+  orders Order[]
+}
+
+model Order {
+  id          String      @id @default(uuid())
+  listingId   String
+  buyerId     String
+  sellerId    String
+  status      OrderStatus @default(CREATED)
+  price       Int
+  platformFee Int
+  total       Int
+  createdAt   DateTime    @default(now())
+  paidAt      DateTime?
+  confirmedAt DateTime?
+
+  mpPreferenceId String?
+  mpPaymentId    String?
+
+  listing Listing @relation(fields: [listingId], references: [id])
+  buyer   User    @relation("BuyerOrders", fields: [buyerId], references: [id])
+  seller  User    @relation("SellerOrders", fields: [sellerId], references: [id])
+
+  payments Payment[]
+}
+
+model Payment {
+  id                 String   @id @default(uuid())
+  orderId            String
+  provider           String
+  providerPaymentId  String?
+  providerEventId    String?
+  status             String
+  amount             Int
+  currency           String
+  rawEvent           Json?
+  createdAt          DateTime @default(now())
+
+  order Order @relation(fields: [orderId], references: [id])
+
+  @@index([orderId])
+  @@index([providerPaymentId])
+  @@unique([provider, providerEventId])
+}
+
+model WebhookEvent {
+  id        String   @id @default(uuid())
+  provider  String
+  eventId   String
+  payload   Json
+  createdAt DateTime @default(now())
+
+  @@unique([provider, eventId])
+}
+
+model AuditLog {
+  id          String   @id @default(uuid())
+  actorUserId String?
+  action      String
+  entityType  String
+  entityId    String?
+  metadata    Json?
+  createdAt   DateTime @default(now())
+
+  @@index([action])
+  @@index([entityType])
+}

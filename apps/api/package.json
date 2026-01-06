@@ -1,0 +1,28 @@
+{
+  "name": "@teloven2/api",
+  "version": "0.0.1",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "dev": "node --watch src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate": "prisma migrate dev --name init",
+    "lint": "echo 'todo'"
+  },
+  "dependencies": {
+    "@prisma/client": "^5.18.0",
+    "cors": "^2.8.5",
+    "dotenv": "^16.4.5",
+    "express": "^4.19.2",
+    "helmet": "^7.1.0",
+    "mercadopago": "^2.0.0",
+    "zod": "^3.23.8",
+    "bcryptjs": "^2.4.3",
+    "jsonwebtoken": "^9.0.2",
+    "resend": "^4.0.0",
+    "express-rate-limit": "^7.4.0"
+  },
+  "devDependencies": {
+    "prisma": "^5.18.0"
+  }
+}
