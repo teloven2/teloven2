@@ -11,7 +11,7 @@ import { Resend } from "resend";
 import crypto from "crypto";
 import { MercadoPagoConfig, Preference } from "mercadopago";
 
-const app = express();
+const app = express(); app.set("trust proxy", 1);
 const prisma = new PrismaClient();
 
 /** ENV */
@@ -37,7 +37,10 @@ if (!process.env.MP_ACCESS_TOKEN) {
   preferenceClient = new Preference(mp);
 }
 app.use(helmet());
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }))
+app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+
+app.use(express.json());
+app.use(express.urlencoded({ extended: true }));
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: NODE_ENV === 'production' ? 30 : 200 });
 const checkoutLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: NODE_ENV === 'production' ? 60 : 500 });
