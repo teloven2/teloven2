@@ -1,3 +1,4 @@
+<a href="/register">Registrar</a> | <a href="/login">Login</a>
 import React, { useState } from "react";
 
 export default function Home() {
