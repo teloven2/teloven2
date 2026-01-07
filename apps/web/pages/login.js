@@ -1,6 +1,6 @@
 import { useState } from "react";
 
-const API = process.env.NEXT_PUBLIC_API_BASE_URL || "http://localhost:4000";
+const API = process.env.NEXT_PUBLIC_API_BASE_URL || "https://teloven2-api2.onrender.com";
 
 export default function LoginPage() {
   const [email, setEmail] = useState("");
