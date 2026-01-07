@@ -148,17 +148,17 @@ app.post('/v1/auth/register', authLimiter, async (req, res) => {
   res.status(201).json({ ok: true, message: 'Revisa tu correo para verificar tu cuenta.' });
 });
 
-app.post('/v1/auth/resend-verification', authLimiter, async (req, res) => {
+app.post("/v1/auth/resend-verification", authLimiter, async (req, res) => {
   const schema = z.object({ email: z.string().email() });
   const { email } = schema.parse(req.body);
 
   const user = await prisma.user.findUnique({ where: { email } });
 
   // Respondemos siempre OK para no filtrar si el email existe
-  if (!user) return res.json({ ok: true, message: 'Si el correo existe, enviaremos un nuevo enlace.' });
+  if (!user) return res.json({ ok: true, message: "Si el correo existe, enviaremos un nuevo enlace." });
 
   if (user.isEmailVerified) {
-    return res.json({ ok: true, message: 'Tu email ya está verificado. Puedes iniciar sesión.' });
+    return res.json({ ok: true, message: "Tu email ya está verificado. Puedes iniciar sesión." });
   }
 
   // Invalida tokens previos no usados
@@ -171,18 +171,20 @@ app.post('/v1/auth/resend-verification', authLimiter, async (req, res) => {
   const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
   await prisma.emailVerification.create({ data: { userId: user.id, token, expiresAt } });
 
+  // ✅ Asegúrate de tener definida verifyUrlApi en este scope
+  const verifyUrlApi = `${API_BASE_URL}/v1/auth/verify?token=${encodeURIComponent(token)}`;
+
   if (resend) {
-    const verifyUrlApi = `${API_BASE_URL}/v1/auth/verify?token=${encodeURIComponent(token)}`;
     await resend.emails.send({
       from: EMAIL_FROM,
       to: email,
-      subject: 'Tu nuevo enlace de verificación — Teloven2',
+      subject: "Tu nuevo enlace de verificación — Teloven2",
       html: buildVerifyEmailHtml({ name: user.name, verifyUrl: verifyUrlApi }),
     });
   }
 
-  await audit('auth.resend_verification', { actorUserId: user.id, entityType: 'user', entityId: user.id });
-  return res.json({ ok: true, message: 'Si el correo existe, enviaremos un nuevo enlace.' });
+  await audit("auth.resend_verification", { actorUserId: user.id, entityType: "user", entityId: user.id });
+  return res.json({ ok: true, message: "Si el correo existe, enviaremos un nuevo enlace." });
 });
 
 app.get('/v1/auth/verify', async (req, res) => {
