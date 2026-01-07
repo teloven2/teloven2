@@ -1,42 +1,43 @@
-import 'dotenv/config';
-import express from 'express';
-import cors from 'cors';
-import helmet from 'helmet';
-import rateLimit from 'express-rate-limit';
-import { PrismaClient } from '@prisma/client';
-import { z } from 'zod';
-import bcrypt from 'bcryptjs';
-import jwt from 'jsonwebtoken';
-import { Resend } from 'resend';
-import crypto from 'crypto';
-
-// Mercado Pago SDK
-import mercadopago from 'mercadopago';
+import "dotenv/config";
+import express from "express";
+import cors from "cors";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
+import { PrismaClient } from "@prisma/client";
+import { z } from "zod";
+import bcrypt from "bcryptjs";
+import jwt from "jsonwebtoken";
+import { Resend } from "resend";
+import crypto from "crypto";
+import { MercadoPagoConfig, Preference } from "mercadopago";
 
 const app = express();
 const prisma = new PrismaClient();
 
+/** ENV */
 const PORT = Number(process.env.PORT || 4000);
-const NODE_ENV = process.env.NODE_ENV || 'development';
-const WEB_BASE_URL = process.env.WEB_BASE_URL || 'http://localhost:3000';
+const NODE_ENV = process.env.NODE_ENV || "development";
+const WEB_BASE_URL = process.env.WEB_BASE_URL || "http://localhost:3000";
 const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${PORT}`;
 const CORS_ORIGIN = process.env.CORS_ORIGIN || WEB_BASE_URL;
 
-const JWT_SECRET = process.env.JWT_SECRET || '';
-if (!JWT_SECRET) console.warn('⚠️ JWT_SECRET no configurado (apps/api/.env)');
+const JWT_SECRET = process.env.JWT_SECRET || "";
+if (!JWT_SECRET) console.warn("⚠️ JWT_SECRET no configurado (apps/api/.env)");
 
 const resend = process.env.RESEND_API_KEY ? new Resend(process.env.RESEND_API_KEY) : null;
-const EMAIL_FROM = process.env.EMAIL_FROM || 'Teloven2 <no-reply@teloven2.local>';
+const EMAIL_FROM = process.env.EMAIL_FROM || "Teloven2 <no-reply@teloven2.local>";
+
+/** Mercado Pago */
+let preferenceClient = null;
 
 if (!process.env.MP_ACCESS_TOKEN) {
-  console.warn('⚠️ MP_ACCESS_TOKEN no está configurado. /checkout fallará hasta que lo pongas en apps/api/.env');
+  console.warn("⚠️ MP_ACCESS_TOKEN no configurado. Mercado Pago deshabilitado.");
 } else {
-  mercadopago.configure({ access_token: process.env.MP_ACCESS_TOKEN });
+  const mp = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
+  preferenceClient = new Preference(mp);
 }
-
 app.use(helmet());
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
-app.use(express.json({ limit: '2mb' }));
+app.use(cors({ origin: CORS_ORIGIN, credentials: true }))
 
 const authLimiter = rateLimit({ windowMs: 15 * 60 * 1000, max: NODE_ENV === 'production' ? 30 : 200 });
 const checkoutLimiter = rateLimit({ windowMs: 5 * 60 * 1000, max: NODE_ENV === 'production' ? 60 : 500 });
@@ -132,7 +133,6 @@ app.post('/v1/auth/register', authLimiter, async (req, res) => {
 
   if (resend) {
     const verifyUrl = `${WEB_BASE_URL}/v1/auth/verify?token=${encodeURIComponent(token)}`; // typo-safe fallback
-    const verifyUrlApi = `${API_BASE_URL}/v1/auth/verify?token=${encodeURIComponent(token)}`;
     const verifyUrlApi = `${API_BASE_URL}/v1/auth/verify?token=${encodeURIComponent(token)}`;
     await resend.emails.send({
       from: EMAIL_FROM,
