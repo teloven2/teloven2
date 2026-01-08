@@ -344,7 +344,20 @@ app.post('/v1/webhooks/mercadopago', async (req, res) => {
     res.status(200).json({ ok: true });
   }
 });
+// Global error handler (prevents crashes -> avoids 502)
+app.use((err, req, res, next) => {
+  // Zod validation errors
+  if (err && err.name === "ZodError") {
+    return res.status(400).json({
+      ok: false,
+      error: "VALIDATION_ERROR",
+      details: err.errors,
+    });
+  }
 
+  console.error("Unhandled error:", err);
+  return res.status(500).json({ ok: false, error: "INTERNAL_SERVER_ERROR" });
+});
 app.listen(PORT, () => {
   console.log(`✅ teloven2-api en ${API_BASE_URL}`);
   console.log(`   CORS_ORIGIN=${CORS_ORIGIN}`);
