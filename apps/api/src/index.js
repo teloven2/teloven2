@@ -196,13 +196,13 @@ app.get('/v1/auth/verify', async (req, res) => {
 
   const ev = await prisma.emailVerification.findUnique({ where: { token } });
   if (!ev || ev.used) return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=error`);
-  if (ev.expiresAt.getTime() < Date.now()) return res.status(400).send('Token expirado');
+  if (ev.expiresAt.getTime() < Date.now()) return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=error`);
 
   const user = await prisma.user.update({ where: { id: ev.userId }, data: { isEmailVerified: true } });
   await prisma.emailVerification.update({ where: { token }, data: { used: true } });
 
   await audit('auth.verify_email', { actorUserId: user.id, entityType: 'user', entityId: user.id });
-  res.redirect(`${WEB_BASE_URL}/auth/verified`);
+  return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=success`);
 });
 
 app.post('/v1/auth/login', authLimiter, async (req, res) => {
