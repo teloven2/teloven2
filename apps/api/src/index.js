@@ -161,7 +161,7 @@ app.post("/v1/auth/resend-verification", authLimiter, async (req, res) => {
   if (!user) return res.json({ ok: true, message: "Si el correo existe, enviaremos un nuevo enlace." });
 
   if (user.isEmailVerified) {
-    return res.json({ ok: true, message: "Tu email ya está verificado. Puedes iniciar sesión." });
+    return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=success`);
   }
 
   // Invalida tokens previos no usados
@@ -192,10 +192,10 @@ app.post("/v1/auth/resend-verification", authLimiter, async (req, res) => {
 
 app.get('/v1/auth/verify', async (req, res) => {
   const token = String(req.query.token || '');
-  if (!token) return res.status(400).send('Falta token');
+  if (!token) return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=error`);
 
   const ev = await prisma.emailVerification.findUnique({ where: { token } });
-  if (!ev || ev.used) return res.status(400).send('Token inválido o ya usado');
+  if (!ev || ev.used) return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=error`);
   if (ev.expiresAt.getTime() < Date.now()) return res.status(400).send('Token expirado');
 
   const user = await prisma.user.update({ where: { id: ev.userId }, data: { isEmailVerified: true } });
