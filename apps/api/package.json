@@ -3,18 +3,16 @@
   "version": "0.0.1",
   "private": true,
   "type": "module",
-
-  "scripts": {
-    "dev": "node --watch src/index.js",
-    "start": "node src/index.js",
-
-    "prisma:generate": "prisma generate",
-    "prisma:migrate:dev": "prisma migrate dev --name init",
-    "prisma:migrate:deploy": "prisma migrate deploy",
-
-    "lint": "echo \"lint pending\""
+  "engines": {
+    "node": "20.x"
   },
-
+  "scripts": {
+    "start": "node src/index.js",
+    "dev": "node --watch src/index.js",
+    "prisma:generate": "prisma generate",
+    "prisma:migrate:deploy": "prisma migrate deploy",
+    "lint": "echo 'todo'"
+  },
   "dependencies": {
     "@prisma/client": "^5.18.0",
     "bcryptjs": "^2.4.3",
@@ -28,12 +26,7 @@
     "resend": "^4.0.0",
     "zod": "^3.23.8"
   },
-
   "devDependencies": {
     "prisma": "^5.18.0"
-  },
-
-  "engines": {
-    "node": "20.x"
   }
 }
