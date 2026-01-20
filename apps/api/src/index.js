@@ -9,75 +9,86 @@ import bcrypt from "bcryptjs";
 import jwt from "jsonwebtoken";
 import { Resend } from "resend";
 import crypto from "crypto";
-import { MercadoPagoConfig, Preference } from "mercadopago";
 
+/* =========================
+   App & DB
+========================= */
 const app = express();
 app.set("trust proxy", 1);
-
 const prisma = new PrismaClient();
 
-/** ENV */
+/* =========================
+   ENV
+========================= */
 const PORT = Number(process.env.PORT || 4000);
 const NODE_ENV = process.env.NODE_ENV || "development";
 const WEB_BASE_URL = process.env.WEB_BASE_URL || "http://localhost:3000";
-const API_BASE_URL = process.env.API_BASE_URL || `http://localhost:${PORT}`;
-const CORS_ORIGIN = process.env.CORS_ORIGIN || WEB_BASE_URL;
+const API_BASE_URL =
+  process.env.API_BASE_URL || `http://localhost:${PORT}`;
 
 const JWT_SECRET = process.env.JWT_SECRET || "";
-if (!JWT_SECRET) console.warn("⚠️ JWT_SECRET no configurado (apps/api/.env)");
+if (!JWT_SECRET) {
+  console.warn("⚠️ JWT_SECRET no configurado");
+}
 
 const resend = process.env.RESEND_API_KEY
   ? new Resend(process.env.RESEND_API_KEY)
   : null;
+
 const EMAIL_FROM =
   process.env.EMAIL_FROM || "Teloven2 <no-reply@teloven2.local>";
 
-/** Mercado Pago */
-let preferenceClient = null;
-
-if (!process.env.MP_ACCESS_TOKEN) {
-  console.warn("⚠️ MP_ACCESS_TOKEN no configurado. Mercado Pago deshabilitado.");
-} else {
-  const mp = new MercadoPagoConfig({ accessToken: process.env.MP_ACCESS_TOKEN });
-  preferenceClient = new Preference(mp);
-}
-
+/* =========================
+   Security & CORS
+========================= */
 app.use(helmet());
-const allowedOrigins = [
-  "http://localhost:3000",
-  "http://127.0.0.1:3000",
-  "https://teloven2-lvcm-git-main-teloven2s-projects.vercel.app"
-];
 
 app.use(
   cors({
     origin: (origin, callback) => {
       if (!origin) return callback(null, true);
-      if (allowedOrigins.includes(origin)) return callback(null, true);
-      return callback(new Error(`CORS bloqueado para origin: ${origin}`));
+
+      const isLocal =
+        /^http:\/\/localhost(:\d+)?$/.test(origin) ||
+        /^http:\/\/127\.0\.0\.1(:\d+)?$/.test(origin);
+
+      const isVercel = /^https:\/\/.*\.vercel\.app$/.test(origin);
+
+      const isProd =
+        origin === "https://teloven2.cl" ||
+        origin === "https://www.teloven2.cl";
+
+      if (isLocal || isVercel || isProd) {
+        return callback(null, true);
+      }
+
+      return callback(new Error(`CORS bloqueado para ${origin}`));
     },
-    credentials: true
+    credentials: true,
   })
 );
+
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
+/* =========================
+   Rate limits
+========================= */
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000,
   max: NODE_ENV === "production" ? 30 : 200,
 });
-const checkoutLimiter = rateLimit({
-  windowMs: 5 * 60 * 1000,
-  max: NODE_ENV === "production" ? 60 : 500,
-});
 
-app.get("/v1/health", (_req, res) =>
-  res.json({ ok: true, service: "teloven2-api", env: NODE_ENV })
-);
-
+/* =========================
+   Helpers
+========================= */
 function signToken(user) {
   return jwt.sign(
-    { sub: user.id, email: user.email, isEmailVerified: user.isEmailVerified },
+    {
+      sub: user.id,
+      email: user.email,
+      isEmailVerified: user.isEmailVerified,
+    },
     JWT_SECRET,
     { expiresIn: "7d" }
   );
@@ -86,327 +97,239 @@ function signToken(user) {
 function requireAuth(req, res, next) {
   try {
     const header = req.headers.authorization || "";
-    const token = header.startsWith("Bearer ") ? header.slice(7) : null;
-    if (!token)
+    const token = header.startsWith("Bearer ")
+      ? header.slice(7)
+      : null;
+
+    if (!token) {
       return res
         .status(401)
-        .json({ error: { code: "UNAUTHENTICATED", message: "Falta token." } });
+        .json({ error: "Falta token" });
+    }
+
     req.user = jwt.verify(token, JWT_SECRET);
     next();
   } catch {
-    return res.status(401).json({
-      error: { code: "UNAUTHENTICATED", message: "Token inválido." },
-    });
+    return res
+      .status(401)
+      .json({ error: "Token inválido" });
   }
 }
 
-function requireVerifiedEmail(req, res, next) {
-  if (!req.user?.isEmailVerified) {
-    return res.status(403).json({
-      error: {
-        code: "EMAIL_NOT_VERIFIED",
-        message: "Debes verificar tu email para continuar.",
-      },
-    });
-  }
-  next();
-}
+/* =========================
+   Health
+========================= */
+app.get("/v1/health", (_req, res) => {
+  res.json({
+    ok: true,
+    service: "teloven2-api",
+    env: NODE_ENV,
+  });
+});
 
-async function audit(
-  action,
-  { actorUserId = null, entityType = "system", entityId = null, metadata = null } = {}
-) {
-  try {
-    await prisma.auditLog.create({
-      data: { action, actorUserId, entityType, entityId, metadata },
-    });
-  } catch {}
-}
-
+/* =========================
+   Email template
+========================= */
 function buildVerifyEmailHtml({ name, verifyUrl }) {
   const safeName = (name || "Hola")
     .replace(/</g, "&lt;")
     .replace(/>/g, "&gt;");
+
   return `
-  <div style="background:#f4f6f8;padding:24px">
-    <div style="max-width:560px;margin:0 auto;background:#ffffff;border-radius:16px;padding:24px;font-family:system-ui,-apple-system,Segoe UI,Roboto,Helvetica,Arial;line-height:1.5;color:#111827">
-      <div style="display:flex;align-items:center;gap:10px;margin-bottom:14px">
-        <div style="width:40px;height:40px;border-radius:12px;background:#0A2540;color:#fff;display:flex;align-items:center;justify-content:center;font-weight:800">T</div>
-        <div>
-          <div style="font-size:14px;color:#6B7280">Teloven2</div>
-          <div style="font-size:18px;font-weight:800">Vende seguro. Cobra seguro. Compra tranquilo.</div>
-        </div>
-      </div>
-
-      <h2 style="margin:16px 0 6px 0;font-size:22px">Verifica tu email</h2>
-      <p style="margin:0 0 12px 0;color:#374151">Hola ${safeName} 👋</p>
-      <p style="margin:0 0 18px 0;color:#374151">Confirma tu email para empezar a vender y comprar con seguridad en Teloven2.</p>
-
-      <a href="${verifyUrl}" style="display:inline-block;background:#0A2540;color:#ffffff;text-decoration:none;padding:12px 16px;border-radius:12px;font-weight:700">
-        Verificar mi cuenta
+  <div style="font-family:system-ui;background:#f4f6f8;padding:24px">
+    <div style="max-width:560px;margin:auto;background:#fff;border-radius:16px;padding:24px">
+      <h2>Verifica tu email</h2>
+      <p>Hola ${safeName} 👋</p>
+      <p>Confirma tu correo para empezar a usar Teloven2.</p>
+      <a href="${verifyUrl}" style="display:inline-block;padding:12px 16px;background:#0A2540;color:#fff;border-radius:10px;text-decoration:none">
+        Verificar cuenta
       </a>
-
-      <p style="margin:18px 0 0 0;color:#6B7280;font-size:13px">
-        Si no fuiste tú, ignora este mensaje. Este enlace expira en 24 horas.
-      </p>
-
-      <hr style="border:none;border-top:1px solid #e5e7eb;margin:18px 0" />
-      <p style="margin:0;color:#6B7280;font-size:12px">
-        Teloven2 · Pago protegido · Confirmación obligatoria
+      <p style="margin-top:16px;font-size:13px;color:#6b7280">
+        Este enlace expira en 24 horas.
       </p>
     </div>
   </div>`;
 }
 
-/** AUTH (email-only) */
-app.post("/v1/auth/register", authLimiter, async (req, res) => {
-  const schema = z.object({
-    email: z.string().email(),
-    password: z.string().min(8),
-    name: z.string().min(2),
-  });
-  const { email, password, name } = schema.parse(req.body);
-
-  const existing = await prisma.user.findUnique({ where: { email } });
-  if (existing)
-    return res.status(409).json({
-      error: { code: "EMAIL_TAKEN", message: "Este email ya está registrado." },
+/* =========================
+   AUTH
+========================= */
+app.post(
+  "/v1/auth/register",
+  authLimiter,
+  async (req, res) => {
+    const schema = z.object({
+      email: z.string().email(),
+      password: z.string().min(8),
+      name: z.string().min(2),
     });
 
-  const passwordHash = await bcrypt.hash(password, 10);
-  const user = await prisma.user.create({ data: { email, name, passwordHash } });
+    const { email, password, name } = schema.parse(req.body);
 
-  const token = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  await prisma.emailVerification.create({ data: { userId: user.id, token, expiresAt } });
-
-  if (resend) {
-    const verifyUrlApi = `${API_BASE_URL}/v1/auth/verify?token=${encodeURIComponent(token)}`;
-    await resend.emails.send({
-      from: EMAIL_FROM,
-      to: email,
-      subject: "Verifica tu email en Teloven2",
-      html: buildVerifyEmailHtml({ name, verifyUrl: verifyUrlApi }),
+    const exists = await prisma.user.findUnique({
+      where: { email },
     });
-  } else {
-    console.warn("⚠️ RESEND_API_KEY no configurado: no se enviará email real.");
-  }
 
-  await audit("auth.register", {
-    actorUserId: user.id,
-    entityType: "user",
-    entityId: user.id,
-  });
-  res.status(201).json({ ok: true, message: "Revisa tu correo para verificar tu cuenta." });
-});
+    if (exists) {
+      return res
+        .status(409)
+        .json({ error: "Email ya registrado" });
+    }
 
-app.post("/v1/auth/resend-verification", authLimiter, async (req, res) => {
-  const schema = z.object({ email: z.string().email() });
-  const { email } = schema.parse(req.body);
+    const passwordHash = await bcrypt.hash(password, 10);
 
-  const user = await prisma.user.findUnique({ where: { email } });
+    const user = await prisma.user.create({
+      data: { email, name, passwordHash },
+    });
 
-  // Respondemos siempre OK para no filtrar si el email existe
-  if (!user) return res.json({ ok: true, message: "Si el correo existe, enviaremos un nuevo enlace." });
+    const token = crypto.randomUUID();
+    const expiresAt = new Date(
+      Date.now() + 24 * 60 * 60 * 1000
+    );
 
-  if (user.isEmailVerified) {
-    return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=success`);
-  }
+    await prisma.emailVerification.create({
+      data: {
+        userId: user.id,
+        token,
+        expiresAt,
+      },
+    });
 
-  // Invalida tokens previos no usados
-  await prisma.emailVerification.updateMany({
-    where: { userId: user.id, used: false },
-    data: { used: true },
-  });
+    if (resend) {
+      const verifyUrl = `${API_BASE_URL}/v1/auth/verify?token=${token}`;
 
-  const token = crypto.randomUUID();
-  const expiresAt = new Date(Date.now() + 24 * 60 * 60 * 1000);
-  await prisma.emailVerification.create({ data: { userId: user.id, token, expiresAt } });
+      await resend.emails.send({
+        from: EMAIL_FROM,
+        to: email,
+        subject: "Verifica tu cuenta en Teloven2",
+        html: buildVerifyEmailHtml({
+          name,
+          verifyUrl,
+        }),
+      });
+    }
 
-  const verifyUrlApi = `${API_BASE_URL}/v1/auth/verify?token=${encodeURIComponent(token)}`;
-
-  if (resend) {
-    await resend.emails.send({
-      from: EMAIL_FROM,
-      to: email,
-      subject: "Tu nuevo enlace de verificación — Teloven2",
-      html: buildVerifyEmailHtml({ name: user.name, verifyUrl: verifyUrlApi }),
+    res.status(201).json({
+      ok: true,
+      message: "Revisa tu correo para verificar tu cuenta",
     });
   }
-
-  await audit("auth.resend_verification", {
-    actorUserId: user.id,
-    entityType: "user",
-    entityId: user.id,
-  });
-
-  return res.json({ ok: true, message: "Si el correo existe, enviaremos un nuevo enlace." });
-});
+);
 
 app.get("/v1/auth/verify", async (req, res) => {
   const token = String(req.query.token || "");
-  if (!token) return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=error`);
 
-  const ev = await prisma.emailVerification.findUnique({ where: { token } });
-  if (!ev || ev.used) return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=error`);
-  if (ev.expiresAt.getTime() < Date.now()) return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=error`);
+  const record = await prisma.emailVerification.findUnique({
+    where: { token },
+  });
 
-  const user = await prisma.user.update({
-    where: { id: ev.userId },
+  if (
+    !record ||
+    record.used ||
+    record.expiresAt < new Date()
+  ) {
+    return res.redirect(
+      `${WEB_BASE_URL}/auth/verified?status=error`
+    );
+  }
+
+  await prisma.user.update({
+    where: { id: record.userId },
     data: { isEmailVerified: true },
   });
-  await prisma.emailVerification.update({ where: { token }, data: { used: true } });
 
-  await audit("auth.verify_email", { actorUserId: user.id, entityType: "user", entityId: user.id });
-  return res.redirect(302, `${WEB_BASE_URL}/auth/verified?status=success`);
-});
-
-app.post("/v1/auth/login", authLimiter, async (req, res) => {
-  const schema = z.object({ email: z.string().email(), password: z.string().min(1) });
-  const { email, password } = schema.parse(req.body);
-
-  const user = await prisma.user.findUnique({ where: { email } });
-  if (!user) return res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas." } });
-
-  const ok = await bcrypt.compare(password, user.passwordHash);
-  if (!ok) return res.status(401).json({ error: { code: "INVALID_CREDENTIALS", message: "Credenciales inválidas." } });
-
-  if (!user.isEmailVerified) {
-    return res.status(403).json({ error: { code: "EMAIL_NOT_VERIFIED", message: "Debes verificar tu email." } });
-  }
-
-  const token = signToken(user);
-  await audit("auth.login", { actorUserId: user.id, entityType: "user", entityId: user.id });
-  res.json({ token, user: { id: user.id, email: user.email, name: user.name, isEmailVerified: user.isEmailVerified } });
-});
-
-app.get("/v1/me", requireAuth, async (req, res) => {
-  const user = await prisma.user.findUnique({ where: { id: req.user.sub } });
-  if (!user) return res.status(404).json({ error: { code: "NOT_FOUND", message: "Usuario no existe" } });
-  res.json({ id: user.id, email: user.email, name: user.name, isEmailVerified: user.isEmailVerified });
-});
-
-/** LISTINGS */
-app.post("/v1/listings", requireAuth, requireVerifiedEmail, async (req, res) => {
-  const schema = z.object({
-    type: z.enum(["product", "service"]),
-    title: z.string().min(2),
-    description: z.string().min(1),
-    price: z.number().int().positive(),
-    currency: z.string().default("CLP"),
-  });
-  const body = schema.parse(req.body);
-  const listing = await prisma.listing.create({ data: { ...body, sellerId: req.user.sub } });
-  await audit("listing.create", { actorUserId: req.user.sub, entityType: "listing", entityId: listing.id });
-  res.status(201).json({ listing });
-});
-
-app.get("/v1/listings", async (_req, res) => {
-  const items = await prisma.listing.findMany({
-    where: { status: "active" },
-    orderBy: { createdAt: "desc" },
-    take: 50,
-  });
-  res.json({ items });
-});
-
-/** ORDERS */
-app.post("/v1/orders", requireAuth, requireVerifiedEmail, async (req, res) => {
-  const schema = z.object({ listingId: z.string().uuid() });
-  const { listingId } = schema.parse(req.body);
-
-  const listing = await prisma.listing.findUnique({ where: { id: listingId } });
-  if (!listing) return res.status(404).json({ error: { code: "LISTING_NOT_FOUND", message: "Listing no existe." } });
-
-  const platformFee = Math.round(listing.price * 0.06);
-  const total = listing.price + platformFee;
-
-  const order = await prisma.order.create({
-    data: { listingId, buyerId: req.user.sub, sellerId: listing.sellerId, price: listing.price, platformFee, total },
+  await prisma.emailVerification.update({
+    where: { token },
+    data: { used: true },
   });
 
-  await audit("order.create", { actorUserId: req.user.sub, entityType: "order", entityId: order.id });
-  res.status(201).json({ order });
+  res.redirect(
+    `${WEB_BASE_URL}/auth/verified?status=success`
+  );
 });
 
-app.post("/v1/orders/:id/checkout", requireAuth, requireVerifiedEmail, checkoutLimiter, async (req, res) => {
-  const order = await prisma.order.findUnique({ where: { id: req.params.id }, include: { listing: true } });
-  if (!order) return res.status(404).json({ error: { code: "ORDER_NOT_FOUND", message: "Orden no existe." } });
+app.post(
+  "/v1/auth/login",
+  authLimiter,
+  async (req, res) => {
+    const schema = z.object({
+      email: z.string().email(),
+      password: z.string(),
+    });
 
-  if (order.buyerId !== req.user.sub) return res.status(403).json({ error: { code: "FORBIDDEN", message: "Solo el comprador puede pagar." } });
-  if (order.status !== "CREATED") return res.status(409).json({ error: { code: "ORDER_STATE_INVALID", message: `Estado inválido: ${order.status}` } });
-  if (!process.env.MP_ACCESS_TOKEN) return res.status(500).json({ error: { code: "MP_NOT_CONFIGURED", message: "MP_ACCESS_TOKEN no configurado." } });
+    const { email, password } = schema.parse(req.body);
 
-  const preferenceBody = {
-    items: [
-      {
-        title: order.listing.title,
-        quantity: 1,
-        currency_id: order.listing.currency ?? "CLP",
-        unit_price: Number(order.total),
-      },
-    ],
-    external_reference: order.id,
-    back_urls: {
-      success: `${WEB_BASE_URL}/pay/success?orderId=${order.id}`,
-      failure: `${WEB_BASE_URL}/pay/failure?orderId=${order.id}`,
-      pending: `${WEB_BASE_URL}/pay/pending?orderId=${order.id}`,
-    },
-    auto_return: "approved",
-    notification_url: `${API_BASE_URL}/v1/webhooks/mercadopago`,
-  };
+    const user = await prisma.user.findUnique({
+      where: { email },
+    });
 
-  if (!preferenceClient) {
-    return res.status(500).json({ error: { code: "MP_NOT_CONFIGURED", message: "Mercado Pago no inicializado." } });
-  }
-
-  const result = await preferenceClient.create({ body: preferenceBody });
-  const preferenceId = result?.id;
-  const initPoint = result?.init_point;
-
-  await prisma.order.update({ where: { id: order.id }, data: { mpPreferenceId: preferenceId ?? null } });
-  await audit("order.checkout_created", { actorUserId: req.user.sub, entityType: "order", entityId: order.id, metadata: { preferenceId } });
-
-  res.json({ provider: "mercadopago", preferenceId, initPoint });
-});
-
-/** Webhook Mercado Pago (modo seguro: guarda evento y NO procesa pagos por ahora) */
-app.post("/v1/webhooks/mercadopago", async (req, res) => {
-  try {
-    const event = req.body;
-    const eventId = (event?.id ?? event?.data?.id ?? "").toString();
-
-    if (eventId) {
-      // Guardamos evento para debugging / auditoría
-      await prisma.webhookEvent
-        .create({
-          data: { provider: "mercadopago", eventId, payload: event },
-        })
-        .catch(() => {});
+    if (!user) {
+      return res
+        .status(401)
+        .json({ error: "Credenciales inválidas" });
     }
 
-    return res.status(200).json({ ok: true });
-  } catch (err) {
-    console.error("Webhook error", err);
-    return res.status(200).json({ ok: true });
-  }
-});
+    const ok = await bcrypt.compare(
+      password,
+      user.passwordHash
+    );
 
-// Global error handler (prevents crashes -> avoids 502)
-app.use((err, req, res, next) => {
-  if (err && err.name === "ZodError") {
-    return res.status(400).json({
-      ok: false,
-      error: "VALIDATION_ERROR",
-      details: err.errors,
+    if (!ok) {
+      return res
+        .status(401)
+        .json({ error: "Credenciales inválidas" });
+    }
+
+    if (!user.isEmailVerified) {
+      return res
+        .status(403)
+        .json({ error: "Email no verificado" });
+    }
+
+    const token = signToken(user);
+
+    res.json({
+      token,
+      user: {
+        id: user.id,
+        email: user.email,
+        name: user.name,
+      },
     });
   }
+);
 
-  console.error("Unhandled error:", err);
-  return res.status(500).json({ ok: false, error: "INTERNAL_SERVER_ERROR" });
+/* =========================
+   ME
+========================= */
+app.get("/v1/me", requireAuth, async (req, res) => {
+  const user = await prisma.user.findUnique({
+    where: { id: req.user.sub },
+  });
+
+  if (!user) {
+    return res.status(404).json({ error: "No existe" });
+  }
+
+  res.json({
+    id: user.id,
+    email: user.email,
+    name: user.name,
+    isEmailVerified: user.isEmailVerified,
+  });
 });
 
+/* =========================
+   Errors
+========================= */
+app.use((err, _req, res, _next) => {
+  console.error("❌ Error:", err);
+  res.status(500).json({ error: "INTERNAL_ERROR" });
+});
+
+/* =========================
+   Start
+========================= */
 app.listen(PORT, () => {
   console.log(`✅ teloven2-api en ${API_BASE_URL}`);
-  console.log(`   CORS_ORIGIN=${CORS_ORIGIN}`);
 });
