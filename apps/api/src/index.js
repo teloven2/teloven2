@@ -43,8 +43,24 @@ if (!process.env.MP_ACCESS_TOKEN) {
 }
 
 app.use(helmet());
-app.use(cors({ origin: CORS_ORIGIN, credentials: true }));
+const allowedOrigins = [
+  WEB_BASE_URL, // ej: http://localhost:3000 en local
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "https://teloven2-lvcm-git-main-teloven2s-projects.vercel.app"
+];
 
+app.use(
+  cors({
+    origin: (origin, callback) => {
+      // Permite requests sin origin (ej: curl, server-to-server)
+      if (!origin) return callback(null, true);
+      if (allowedOrigins.includes(origin)) return callback(null, true);
+      return callback(new Error(`CORS bloqueado para origin: ${origin}`));
+    },
+    credentials: true
+  })
+);
 app.use(express.json());
 app.use(express.urlencoded({ extended: true }));
 
