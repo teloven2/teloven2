@@ -44,7 +44,6 @@ if (!process.env.MP_ACCESS_TOKEN) {
 
 app.use(helmet());
 const allowedOrigins = [
-  WEB_BASE_URL, // ej: http://localhost:3000 en local
   "http://localhost:3000",
   "http://127.0.0.1:3000",
   "https://teloven2-lvcm-git-main-teloven2s-projects.vercel.app"
@@ -53,7 +52,6 @@ const allowedOrigins = [
 app.use(
   cors({
     origin: (origin, callback) => {
-      // Permite requests sin origin (ej: curl, server-to-server)
       if (!origin) return callback(null, true);
       if (allowedOrigins.includes(origin)) return callback(null, true);
       return callback(new Error(`CORS bloqueado para origin: ${origin}`));
